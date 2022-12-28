@@ -14,7 +14,6 @@ BATCH_SIZE = 128
 TEST_BATCH_SIZE = 1_000
 N_EPOCH = 200
 LR = 1.0
-GAMMA = 0.7
 SEED = 42
 LOG_INT = 100
 SAVE_MODEL = 'trained_models/'
@@ -74,7 +73,7 @@ def test(model, device, test_loader, verbose=True, name='Test set'):
     test_loss /= len(test_loader.dataset)
 
     if verbose:
-        print(f'\n{name}: Average loss: {test_loss: .4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100. * correct / len(test_loader.dataset):.0f})')
+        print(f'{name}: Average loss: {test_loss: .4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100. * correct / len(test_loader.dataset):.0f}%)\n')
     return test_loss, 100. * correct / len(test_loader.dataset)
 
 
@@ -94,7 +93,7 @@ def main():
         test_kwargs.update(cuda_kwargs)
 
     # get datasets and create loaders
-    transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(0.5, 0.5)])
+    transform = transforms.Compose([transforms.ToTensor()])
 
     dataset1 = datasets.MNIST('./dataset', train=True, download=True, transform=transform)
     train_set, dev_set = torch.utils.data.random_split(dataset1, [50_000, 10_000], generator=torch.Generator().manual_seed(42))
@@ -131,14 +130,14 @@ def main():
             if dev_loss < best_loss:  # found better epoch
                 best_loss = dev_loss
                 best_epoch = epoch
-                torch.save(model.state_dict(), SAVE_MODEL + 'mnist_cnn_temp.pt')
+                torch.save(model.state_dict(), SAVE_MODEL + f'mnist_cnn_best_{int(start_time)}.pt')
             if best_epoch + PATIENCE <= epoch:  # no improvment in the last PATIENCE epochs
                 print(f'No improvement was done in the last {PATIENCE} epochs, breaking...')
                 break
         end_time = time.time()
         print('Training took %.3f seconds' % (end_time - start_time))
         print(f'Best model was achieved on epoch {best_epoch}')
-        model.load_state_dict(torch.load(SAVE_MODEL + 'mnist_cnn_temp.pt'))  # load model from best epoch
+        model.load_state_dict(torch.load(SAVE_MODEL + f'mnist_cnn_best_{int(start_time)}.pt'))  # load model from best epoch
 
         epochs = np.arange(1, len(dev_losses) + 1)
         fig, ax1 = plt.subplots()
@@ -148,7 +147,7 @@ def main():
         ax1.set_ylabel('Loss', color=color)
         ax1.plot(epochs, dev_losses, 'b-', label='dev loss')
         ax1.plot(epochs, train_losses, 'b--', label='train loss')
-        ax1.tick_params(axis='y', labelcolor = color)
+        ax1.tick_params(axis='y', labelcolor=color)
 
         ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
 
@@ -156,7 +155,7 @@ def main():
         ax2.set_ylabel('Accuracy', color=color)  # we already handled the x-label with ax1
         ax2.plot(epochs, dev_accuracy, 'r-', label='dev accuracy')
         ax2.plot(epochs, train_accuracy, 'r--', label='train accuracy')
-        ax2.tick_params(axis='y', labelcolor = color)
+        ax2.tick_params(axis='y', labelcolor=color)
 
         fig.tight_layout()  # otherwise the right y-label is slightly clipped
         ax1.legend()
