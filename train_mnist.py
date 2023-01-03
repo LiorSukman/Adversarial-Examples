@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
+from torchvision.models import resnet34 as Resnet
 import matplotlib.pyplot as plt
 from os.path import isdir
 from os import mkdir
@@ -12,12 +13,13 @@ import numpy as np
 PATIENCE = 20
 BATCH_SIZE = 128
 TEST_BATCH_SIZE = 1_000
-N_EPOCH = 200
+N_EPOCH = 20
 LR = 1.0
-SEED = 42
+SEED = 43
 LOG_INT = 100
 SAVE_MODEL = 'trained_models/'
 LOAD_MODEL = None
+IDENTIFIER = '_resnet'
 
 
 class Net(nn.Module):
@@ -53,9 +55,7 @@ def train(model, device, train_loader, optimizer, epoch, log_interval):
         loss.backward()
         optimizer.step()
         if batch_idx % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader), loss.item()))
+            print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)} ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item():.3f}')
 
 
 def test(model, device, test_loader, verbose=True, name='Test set'):
@@ -80,12 +80,12 @@ def test(model, device, test_loader, verbose=True, name='Test set'):
 def main():
     torch.manual_seed(SEED)
 
-    device = "mps" if getattr(torch, "has_mps", False) else "cpu" # device to run the model on
+    device = 'mps' if getattr(torch, 'has_mps', False) else 'cpu' # device to run the model on
 
     # organize parsed data
     train_kwargs = {'batch_size': BATCH_SIZE}
     test_kwargs = {'batch_size': TEST_BATCH_SIZE}
-    if device != "cpu":
+    if device != 'cpu':
         cuda_kwargs = {'num_workers': 1,
                        'pin_memory': True,
                        'shuffle': True}
@@ -103,7 +103,8 @@ def main():
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
     # create model, initialize optimizer
-    model = Net().to(device)
+    #model = Net().to(device)
+    model = Resnet().to(device)
     optimizer = optim.Adadelta(model.parameters(), lr=LR)
 
     dev_losses = []
@@ -130,14 +131,14 @@ def main():
             if dev_loss < best_loss:  # found better epoch
                 best_loss = dev_loss
                 best_epoch = epoch
-                torch.save(model.state_dict(), SAVE_MODEL + f'mnist_cnn_best_{int(start_time)}.pt')
+                torch.save(model.state_dict(), SAVE_MODEL + f'mnist_cnn_best{IDENTIFIER}_{int(start_time)}.pt')
             if best_epoch + PATIENCE <= epoch:  # no improvment in the last PATIENCE epochs
                 print(f'No improvement was done in the last {PATIENCE} epochs, breaking...')
                 break
         end_time = time.time()
         print('Training took %.3f seconds' % (end_time - start_time))
         print(f'Best model was achieved on epoch {best_epoch}')
-        model.load_state_dict(torch.load(SAVE_MODEL + f'mnist_cnn_best_{int(start_time)}.pt'))  # load model from best epoch
+        model.load_state_dict(torch.load(SAVE_MODEL + f'mnist_cnn_best{IDENTIFIER}_{int(start_time)}.pt'))  # load model from best epoch
 
         epochs = np.arange(1, len(dev_losses) + 1)
         fig, ax1 = plt.subplots()
