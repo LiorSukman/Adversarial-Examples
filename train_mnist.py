@@ -10,16 +10,24 @@ from os import mkdir
 import time
 import numpy as np
 
+from fgsm import FGSMTransform
+from custom_pytorch import CCompose, CToTensor, CMNIST
+
+P = 0.3
+EPS = 0.2
+ADV_PATH = 'trained_models/mnist_cnn_best_1672124664.pt'
+
 PATIENCE = 20
 BATCH_SIZE = 128
 TEST_BATCH_SIZE = 1_000
 N_EPOCH = 20
 LR = 1.0
-SEED = 43
+SEED = 42
+PART_SEED = 42
 LOG_INT = 100
 SAVE_MODEL = 'trained_models/'
 LOAD_MODEL = None
-IDENTIFIER = '_resnet'
+IDENTIFIER = f'_eps{EPS}_p{P}'
 
 
 class Net(nn.Module):
@@ -54,7 +62,7 @@ def train(model, device, train_loader, optimizer, epoch, log_interval):
         loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
-        if batch_idx % log_interval == 0:
+        if batch_idx % log_interval == log_interval - 1:
             print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)} ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item():.3f}')
 
 
@@ -93,18 +101,22 @@ def main():
         test_kwargs.update(cuda_kwargs)
 
     # get datasets and create loaders
-    transform = transforms.Compose([transforms.ToTensor()])
+    transform_train = CCompose([CToTensor(), FGSMTransform(P, EPS, ADV_PATH, Net())])
+    transform_test = transforms.Compose([transforms.ToTensor()])
 
-    dataset1 = datasets.MNIST('./dataset', train=True, download=True, transform=transform)
-    train_set, dev_set = torch.utils.data.random_split(dataset1, [50_000, 10_000], generator=torch.Generator().manual_seed(42))
-    dataset2 = datasets.MNIST('./dataset', train=False, download=True, transform=transform)
+    dataset1 = CMNIST('./dataset', train=True, download=True, transform=transform_train)
+    train_set, _ = torch.utils.data.random_split(dataset1, [50_000, 10_000], generator=torch.Generator().manual_seed(PART_SEED))
+    dataset2 = datasets.MNIST('./dataset', train=True, download=True, transform=transform_test)
+    _, dev_set = torch.utils.data.random_split(dataset2, [50_000, 10_000], generator=torch.Generator().manual_seed(PART_SEED))
+    dataset3 = datasets.MNIST('./dataset', train=False, download=True, transform=transform_test)
+
     train_loader = torch.utils.data.DataLoader(train_set, **train_kwargs)
     dev_loader = torch.utils.data.DataLoader(dev_set, **train_kwargs)
-    test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
+    test_loader = torch.utils.data.DataLoader(dataset3, **test_kwargs)
 
     # create model, initialize optimizer
-    #model = Net().to(device)
-    model = Resnet().to(device)
+    model = Net().to(device)
+    #model = Resnet().to(device)
     optimizer = optim.Adadelta(model.parameters(), lr=LR)
 
     dev_losses = []
@@ -136,7 +148,7 @@ def main():
                 print(f'No improvement was done in the last {PATIENCE} epochs, breaking...')
                 break
         end_time = time.time()
-        print('Training took %.3f seconds' % (end_time - start_time))
+        print(f'Training took {int(end_time - start_time)} seconds')
         print(f'Best model was achieved on epoch {best_epoch}')
         model.load_state_dict(torch.load(SAVE_MODEL + f'mnist_cnn_best{IDENTIFIER}_{int(start_time)}.pt'))  # load model from best epoch
 
