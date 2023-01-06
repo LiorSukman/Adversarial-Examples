@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-def fgsm_attack(image, epsilons, data_grad):
+def fgsm_attack(image, epsilons, data_grad, p=1):
     # some validation of the input
     if type(epsilons) == np.ndarray:
         assert len(epsilons.shape) == 4 # dimension of image
@@ -12,7 +12,8 @@ def fgsm_attack(image, epsilons, data_grad):
         epsilons = np.array([[[[epsilons]]]], dtype=np.float32)
 
     # Collect the element-wise sign of the data gradient
-    sign_data_grad = data_grad.sign().repeat(epsilons.shape)
+    mask = torch.reshape(torch.Tensor(np.random.binomial(1, p, len(data_grad))), (-1, 1, 1, 1))
+    sign_data_grad = (data_grad.sign() * mask).repeat(epsilons.shape)
     # Create the perturbed image by adjusting each pixel of the input image
     perturbed_images = image.repeat(epsilons.shape) + sign_data_grad * epsilons
     # Adding clipping to maintain [0,1] range
@@ -20,8 +21,35 @@ def fgsm_attack(image, epsilons, data_grad):
     # Return the perturbed image
     return perturbed_images
 
+def replacement_pipeline(images, targets, epsilon, p, model, device):
+    """
+    Pipeline to replace some of the inputs by the perturbed images based on the FGSM.
+    This is a bit different than the approach presented in Goodfellow et al., 2014. Instead of always using both 
+    representations (original and perturbed) to update the weights for every input image, we are using only the 
+    perturbed images in p of the cases and the original in the others. This was proved to be efficient (see 
+    notebook - Goodfellow2014_exp.ipynb experiment 7) while not needing to calculate the loss an extra time.
+    """
+    model.eval()
+    images.requires_grad = True
+    output = model(images)      
+    model.zero_grad()
+    loss = F.nll_loss(output, targets)
+    loss.backward()
+    data_grad = images.grad.data
+    images.requires_grad = False
+    model.train()
+    pert_imgaes = fgsm_attack(images.cpu(), epsilon, data_grad.cpu(), p).to(device)
+    return pert_imgaes
+
+def fgsm_regularization(images, targets, epsilon, alpha, model, device):
+    pert_images = replacement_pipeline(images, targets, epsilon, 1, model, device)
+    output_org = model(images)
+    output_pert = model(pert_images)
+    loss = alpha * (F.nll_loss(output_org, targets)) + (1 - alpha) * (F.nll_loss(output_pert, targets))
+    return loss
+
 class FGSMTransform:
-    """Apply FGSM on the data"""
+    """Apply FGSM transformation on the data before training based on another model"""
 
     def __init__(self, p, epsilon, path, model):
         self.p = p

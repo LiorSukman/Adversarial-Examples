@@ -10,12 +10,16 @@ from os import mkdir
 import time
 import numpy as np
 
-from fgsm import FGSMTransform
+from fgsm import FGSMTransform, replacement_pipeline, fgsm_regularization
 from custom_pytorch import CCompose, CToTensor, CMNIST
 
 P = 0.3
 EPS = 0.2
-ADV_PATH = 'trained_models/mnist_cnn_best_1672124664.pt'
+ALPHA = 0.5
+ADV_PATH = None #'trained_models/mnist_cnn_best_1672124664.pt'
+AE_TRAIN = False
+REGULARIZE = True
+assert not (AE_TRAIN and REGULARIZE)
 
 PATIENCE = 20
 BATCH_SIZE = 128
@@ -27,7 +31,7 @@ PART_SEED = 42
 LOG_INT = 100
 SAVE_MODEL = 'trained_models/'
 LOAD_MODEL = None
-IDENTIFIER = f'_eps{EPS}_p{P}'
+IDENTIFIER = f'_reg_alpha{ALPHA}_eps{EPS}'
 
 
 class Net(nn.Module):
@@ -57,9 +61,14 @@ def train(model, device, train_loader, optimizer, epoch, log_interval):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
-        optimizer.zero_grad()
+        if AE_TRAIN:
+            data = replacement_pipeline(data, target, EPS, P, model, device)
+        model.zero_grad()
         output = model(data)
-        loss = F.nll_loss(output, target)
+        if REGULARIZE:
+            loss = fgsm_regularization(data, target, EPS, ALPHA, model, device)
+        else:
+            loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
         if batch_idx % log_interval == log_interval - 1:
@@ -101,11 +110,17 @@ def main():
         test_kwargs.update(cuda_kwargs)
 
     # get datasets and create loaders
-    transform_train = CCompose([CToTensor(), FGSMTransform(P, EPS, ADV_PATH, Net())])
-    transform_test = transforms.Compose([transforms.ToTensor()])
+    if ADV_PATH:
+        transform_train = CCompose([CToTensor(), FGSMTransform(P, EPS, ADV_PATH, Net())])
+        dataset1 = CMNIST('./dataset', train=True, download=True, transform=transform_train)
+        train_set, _ = torch.utils.data.random_split(dataset1, [50_000, 10_000], generator=torch.Generator().manual_seed(PART_SEED))
+    else:
+        transform_train = transforms.Compose([transforms.ToTensor()])
+        dataset1 = datasets.MNIST('./dataset', train=True, download=True, transform=transform_train)
+        train_set, _ = torch.utils.data.random_split(dataset1, [50_000, 10_000], generator=torch.Generator().manual_seed(PART_SEED))
 
-    dataset1 = CMNIST('./dataset', train=True, download=True, transform=transform_train)
-    train_set, _ = torch.utils.data.random_split(dataset1, [50_000, 10_000], generator=torch.Generator().manual_seed(PART_SEED))
+    transform_test = transforms.Compose([transforms.ToTensor()])
+    
     dataset2 = datasets.MNIST('./dataset', train=True, download=True, transform=transform_test)
     _, dev_set = torch.utils.data.random_split(dataset2, [50_000, 10_000], generator=torch.Generator().manual_seed(PART_SEED))
     dataset3 = datasets.MNIST('./dataset', train=False, download=True, transform=transform_test)
