@@ -3,24 +3,24 @@ import torch
 import torch.nn.functional as F
 
 def fgsm_attack(images, epsilons, data_grad, p=1.0):
-    
+    images, data_grad = images.unsqueeze(dim=0), data_grad.unsqueeze(dim=0)
     # some validation of the input
     if isinstance(epsilons, np.ndarray):
-        assert len(epsilons.shape) == 4 # dimension of image
+        assert len(epsilons.shape) == 5 # dimension of image + 1
         epsilons.astype(np.float32)
     else:
         assert isinstance(epsilons, float)
-        epsilons = np.array([[[[epsilons]]]], dtype=np.float32)
+        epsilons = np.array([[[[[epsilons]]]]], dtype=np.float32)
 
     # Collect the element-wise sign of the data gradient
-    mask = torch.reshape(torch.Tensor(np.random.binomial(1, p, len(images))), (-1, 1, 1, 1))
+    mask = torch.reshape(torch.Tensor(np.random.binomial(1, p, len(images))), (1, -1, 1, 1, 1))
     sign_data_grad = (data_grad.sign() * mask).repeat(epsilons.shape)
     # Create the perturbed image by adjusting each pixel of the input image
     perturbed_images = images.repeat(epsilons.shape) + sign_data_grad * epsilons
     # Adding clipping to maintain [0,1] range
     perturbed_images = torch.clamp(perturbed_images, 0, 1)
     # Return the perturbed image
-    return perturbed_images
+    return perturbed_images.squeeze(dim=0)
 
 def replacement_pipeline(images, targets, epsilon, p, model, device):
     """
@@ -63,7 +63,7 @@ def ll_fgsm(images, epsilon, p, model, device, targets=None):
     images.requires_grad = True
     images.grad = None
     output = model(images)
-    ll_targets = targets if targets else output.argmin(dim=1)
+    ll_targets = targets if targets is not None else output.argmin(dim=1)
     model.zero_grad()
     loss = F.nll_loss(output, ll_targets)
     loss.backward()
