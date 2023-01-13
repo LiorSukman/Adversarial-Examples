@@ -10,7 +10,7 @@ from os import mkdir
 import time
 import numpy as np
 
-from fgsm import FGSMTransform, replacement_pipeline, fgsm_regularization
+from attack_algo import FGSMTransform, replacement_pipeline, fgsm_regularization
 from custom_pytorch import CCompose, CToTensor, CMNIST
 
 P = 0.3

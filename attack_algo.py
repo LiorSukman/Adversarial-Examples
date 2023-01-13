@@ -74,6 +74,23 @@ def ll_fgsm(images, epsilon, p, model, device, targets=None):
     pert_imgaes = fgsm_attack(images.cpu(), epsilon, data_grad.cpu(), p).to(device)
     return pert_imgaes
 
+def iter_adv(images, targets, epsilon, model, ll=False, p=1.0, device='cpu', dynamic_range=255, mask=None):
+    assert isinstance(epsilon, float)  # epsilon here represents maximal change, no need to pass more than 1 value
+    epsilon_dr = int(epsilon * dynamic_range)
+    if mask is None:
+        mask = np.random.binomial(1, p, len(images)) == 1.0
+    p_placeholder = 1.0
+    eps_placeholder = 1.0 / dynamic_range
+    pert_images = images
+    for i in range(epsilon_dr):
+        if not ll:
+            pert_images = replacement_pipeline(pert_images, targets, eps_placeholder, p_placeholder, model, device)
+        else:
+            pert_images = ll_fgsm(pert_images, eps_placeholder, p_placeholder, model, device, targets=targets)
+    pert_images[~mask] = images[~mask]
+    return pert_images, mask
+    
+
 class FGSMTransform:
     """
     Apply FGSM transformation on the data before training based on another model
